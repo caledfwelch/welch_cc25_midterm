@@ -1,2 +1,2 @@
-# welch_cc25
-creative coding, spring 25
+# welch_cc25_midterm
+creative coding midterm, spring 25

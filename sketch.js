@@ -1,12 +1,13 @@
 // click to reset at end
 
 let startTime;
-let expandTime = 180; // time (should be 3 min but i'm using 30 secs because i'm impatient)
+let expandTime = 180; // time, 3 min
 let maxBorderWidth;
 let currBorderWidth;
 let houseParts = []; // store house parts
 let cracks = []; // store cracks
-let quadrantColors = []; // store quadrant colors
+let dayNightAngle = 0; // angle for sun/moon rotation, start at 0
+let skyColors = []; // store sky colors for day/night cycle
 
 function setup() {
     createCanvas(windowWidth, windowHeight);
@@ -18,12 +19,13 @@ function setup() {
     currBorderWidth = 0; // start with no border
     noCursor();
     
-    quadrantColors = [
-        color(118, 202, 232), // tl: daytime
-        color(191, 72, 29), // tr: sunset
-        color(143, 179, 161), // bl: sunrise
-        color(19, 38, 82) // br: midnight
-    ];  
+    skyColors = [
+        color(149, 115, 158), // sunset
+        color(30, 28, 66), // night
+        color(114, 127, 133), // sunrise
+        color(97, 203, 232) // daytime
+    ];
+    
     createHouseParts();
 }
 
@@ -66,15 +68,26 @@ function draw() {
     // if there's still visible area
     if (boxSize > 0) {
         // center visible area
-        let boxX = (width - boxSize) / 2;
-        let boxY = (height - boxSize) / 2;
+        let boxX = (width-boxSize) / 2;
+        let boxY = (height-boxSize) / 2;
 
-        // determine which quadrant mouse is in
-        let quadrantColor = getQuadrantColor(mouseX, mouseY);
+        // calculate day/night cycle speed based on expandTime, gets faster as expandTime decreasess
+        let cycleSpeed = 0.01 * (180 / expandTime);
+        
+        // update angle to determine time of day, basically a unit circle
+        // cycleSpeed increases as squeezeFactor increases
+        dayNightAngle += cycleSpeed + (squeezeFactor*cycleSpeed*5);
+        
+        // gat sky color based on point in day/night circle
+        let skyColor = getSkyColor(dayNightAngle);
 
-        // draw background for visible area with quadrant color
-        fill(quadrantColor);
+        // draw background for visible area with sky color
+        fill(skyColor);
         rect(boxX, boxY, boxSize, boxSize);
+        
+        // draw sun, moon, grass
+        drawSunAndMoon(boxX, boxY, boxSize, squeezeFactor);
+        drawGrass(boxX, boxY, boxSize, boxSize);
         
         // draw house with distortion effects
         drawDistortedHouse(boxX, boxY, boxSize, boxSize, squeezeFactor);
@@ -83,6 +96,9 @@ function draw() {
         if (squeezeFactor > 0.4) {
             drawDustParticles(boxX, boxY, boxSize, boxSize, squeezeFactor);
         }
+        
+        // draw pressure bar
+        drawPressureBar(boxX, boxY, boxSize, squeezeFactor);
         
         // confine cursor to visible area
         // reference: https://processing.org/reference/constrain_.html
@@ -96,17 +112,80 @@ function draw() {
     }
 }
 
-function getQuadrantColor(x, y) {
-    // determine which quadrant current position (x, y) is in
-    if (x < width / 2 && y < height / 2) {
-        return quadrantColors[0]; // tl
-    } else if (x >= width / 2 && y < height / 2) {
-        return quadrantColors[1]; // tr
-    } else if (x < width / 2 && y >= height / 2) {
-        return quadrantColors[2]; // bl
-    } else {
-        return quadrantColors[3]; // br
+function getSkyColor(angle) {
+    let normAngle = angle % TWO_PI; // normalize angle so it "wraps" back into 0-360 range
+    if (normAngle < 0) normAngle += TWO_PI;  // add 2pi if angle is negative
+
+    // divide 2pi into 4 segments for 4 sky colors
+    let segment = normAngle / (PI/2);
+
+    // wrap segment value when >4
+    let colorIndex = floor(segment) % 4;
+    let nextColorIndex = (colorIndex+1) % 4;
+
+    let lerpFactor = segment - floor(segment); // subtract integer part of segment from segment, lerpFactor will be some val 0-1
+
+    return lerpColor(skyColors[colorIndex], skyColors[nextColorIndex], lerpFactor);
+    //                ^ curr sky color       ^ next sky color (+1)      ^ how far along between colorIndex and nextColorIndex
+}
+
+function drawSunAndMoon(x, y, size, squeezeFactor) {
+    // make circular path with origin at center of screen (x/y+size/2), radius is 45% of screen size
+    let sunX = x+size/2 + cos(dayNightAngle) * (size*0.45);
+    //                     ^ x/y-coords of point on this circle given value of dayNightAngle
+    let sunY = y+size/2 + sin(dayNightAngle) * (size*0.45);
+
+    // same for moon
+    let moonX = x+size/2 + cos(dayNightAngle+PI) * (size*0.45);
+    let moonY = y+size/2 + sin(dayNightAngle+PI) * (size*0.45);
+
+    // draw sun
+    fill(255, 238, 161);
+    noStroke();
+    ellipse(sunX, sunY, size*0.1, size*0.1);
+
+    // draw moon
+    fill(200, 200, 200);
+    noStroke();
+    ellipse(moonX, moonY, size*0.08, size*0.08);
+}
+
+function drawGrass(x, y, w, h) {
+    fill(33, 69, 28);
+    noStroke();
+    rect(x, y+h*0.8, w, h*0.2);  // fill bottom 20% of screen
+
+    // draw grass blades
+    stroke(59, 133, 49);
+    for (let i = 0; i < w; i += w/40) {  // 40 blades across entire screen
+        let grassHeight = random(0.03, 0.08) * h;  // random height
+        line(x+i, y+h*0.8, x+i, y+h*0.8 - grassHeight);  // draw each blade ("0"-grassHeight)
     }
+    noStroke();
+}
+
+function drawPressureBar(x, y, size, squeezeFactor) {
+    // dimensions
+    let barWidth = size * 0.5;
+    let barHeight = size * 0.03;
+    let barX = x + (size - barWidth) / 2;  // center horizontally
+    let barY = y + size * 0.05;  // 5% of the way down from the top
+
+    stroke(100);
+    strokeWeight(2);
+    noFill();
+    rect(barX, barY, barWidth, barHeight);  // bar outline
+
+    // move from green to red based on squeezeFactor
+    let gaugeColor = color(
+        map(squeezeFactor, 0, 1, 0, 255), // red increases
+        map(squeezeFactor, 0, 1, 255, 0), // green decreases
+        0 // blue is 0
+    );
+
+    fill(gaugeColor);
+    noStroke();
+    rect(barX, barY, barWidth*squeezeFactor, barHeight); // fill width (progress) proportional to squeezeFactor
 }
 
 function drawDistortedHouse(x, y, w, h, squeezeFactor) {
@@ -141,6 +220,8 @@ function drawDistortedHouse(x, y, w, h, squeezeFactor) {
         
         let distortion = map(squeezeFactor, 0, 1, 0, 20); // calculate distortion amount by scaling squeeze factor (0-1) to distortion range of 0-20
         
+        stroke(64, 52, 39);
+
         if (partType === 'rect') {
             // calculate actual position and size of the rectangle
             // eX, eY, eW, eH of rectangle are relative to visible area
@@ -257,10 +338,6 @@ function mousePressed() {
     startTime = millis();
     currBorderWidth = 0;
     cracks = [];
+    dayNightAngle = 0;
     createHouseParts();
 }
-
-// TODO: add pressure gauge of some kind? 
-// grass/clouds/stars? add more house parts
-// text when screen fills black?
-// sky color changing rapidly as intensity increases? get rid of quadrant and add sun/moon that spins faster and faster???
